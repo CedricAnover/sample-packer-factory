@@ -30,7 +30,12 @@ variable "container_hostname" {
 
 variable "docker_user" {
   type    = string
-  default = "admin"
+  sensitive = true
+}
+
+variable "docker_passwd" {
+  type    = string
+  sensitive = true
 }
 
 variable "golden_img_name" {
@@ -61,7 +66,7 @@ source "docker" "golden-duck" {
   # Override Communicator with SSH (For Sysbox with Systemd + Docker + Sshd)
   communicator = "ssh"
   ssh_username = "${var.docker_user}"
-  ssh_password = "${var.docker_user}"
+  // ssh_password = "${var.docker_passwd}"
   ssh_private_key_file = "./.ssh/id_rsa"
 
   // exec_user = "${var.docker_user}"
@@ -88,7 +93,7 @@ build {
   # Create Image Name and Tag
   post-processor "docker-tag" {
     repository = "${var.golden_img_name}"  // Output Docker Image Name
-    tag = ["${var.golden_img_version}"]
+    tags = ["${var.golden_img_version}"]
   }
 
   # Generate Tarball
