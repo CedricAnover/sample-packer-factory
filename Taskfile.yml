@@ -1,0 +1,125 @@
+version: '3'
+
+silent: true
+
+env:
+  DOCKER_IMAGE_NAME: dock-pack-img
+  DOCKER_IMAGE_TAG: v0.1
+  DIST_PATH: ./dist
+  PACKER_TEMPLATE: sample-template.pkr.hcl
+
+# dotenv: [".env"]
+
+# vars:
+#   VAR_NAME: value
+
+tasks:
+  default:
+    cmds:
+      - echo 'Default...'
+
+  # ==============================================================
+  # Auxiliary Commands
+  generate-ssh:
+    desc: Generate New SSH Key Pair
+    vars:
+      SSH_TYPE: rsa
+      ID_RSA_PATH: ./.ssh/id_rsa
+      SSH_USER: admin
+      SSH_HOST: controller
+    cmds:
+      - rm -rf ./.ssh && mkdir ./.ssh
+      - ssh-keygen -t {{.SSH_TYPE}} -b 4096 -f {{.ID_RSA_PATH}} -C "{{.SSH_USER}}@{{.SSH_HOST}}" -N ""
+  
+  generate-dist-dir:
+    desc: Generate dist folder for Builders
+    summary: |
+      Generates 2 folders: "dist/dockerfile/" and "dist/packer/"
+    cmds:
+      - if [ ! -d ./dist/dockerfile ]; then mkdir -p ./dist/dockerfile ; fi
+      - if [ ! -d ./dist/packer ]; then mkdir -p ./dist/packer ; fi
+  # ==============================================================
+  # Build Pipeline (Base Image --> Golden Images)
+  build:
+    desc: Build the Base and Golden Images
+    deps:
+      - clean
+    cmds:
+      - task: generate-ssh
+      - task: build-dockerfile
+      - task: build-packer
+  # ==============================================================
+  # Phase 1: Build from Dockerfile (Base Image)
+  build-dockerfile:
+    desc: Build Base Image from Dockerfile
+    vars:
+      IMAGE_NAME: $DOCKER_IMAGE_NAME
+      TAG: $DOCKER_IMAGE_TAG
+    deps:
+      - generate-dist-dir
+      - provision-dockerfile-before
+    cmds:
+      - echo Building from Dockerfile...
+      - docker build -t {{.IMAGE_NAME}}:{{.TAG}} .
+      - docker image save -o $DIST_PATH/dockerfile/{{.IMAGE_NAME}}-{{.TAG}}.tar {{.IMAGE_NAME}}:{{.TAG}}
+      - task: provision-dockerfile-after
+  
+  provision-dockerfile-before:
+    cmds:
+      - echo [Dockerfile] Provisioning before Builds...
+      - defer: { task: clean-danglings }
+  
+  provision-dockerfile-after:
+    cmds:
+      - echo [Dockerfile] Provisioning after Builds...
+      - defer: { task: clean-danglings }
+  # ==============================================================
+  # Phase 2: Build with Packer (Docker Commit) (Golden Images)
+  build-packer:
+    desc: Build Golden Image(s) with Packer
+    deps:
+      - generate-dist-dir
+      - provision-packer-before
+    cmds:
+      - echo Building with Packer...
+      - packer init .
+      - packer validate $PACKER_TEMPLATE
+      - packer build -force -on-error=cleanup $PACKER_TEMPLATE
+      - task: provision-packer-after
+
+  provision-packer-before:
+    cmds:
+      - echo [Packer] Provisioning before Builds...
+      - defer: { task: clean-danglings }
+  
+  provision-packer-after:
+    cmds:
+      - echo [Packer] Provisioning after Builds...
+      - defer: { task: clean-danglings }
+  # ==============================================================
+  # Cleaning
+  clean:
+    desc: Clean All
+    cmds:
+      - task: clean-dockerfile
+      - task: clean-packer
+      - defer: { task: clean-danglings }
+  
+  clean-danglings:
+    desc: Clean and Remove Docker Dangling Images
+    internal: true
+    cmd: docker image prune -f
+
+  clean-dockerfile:
+    desc: Clean Docker Build Artifacts
+    cmds:
+      - echo Cleaning Dockerfile Build...
+      - task: clean-danglings
+      - docker rmi $DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG 2> /dev/null || true
+      - rm -rf $DIST_PATH/dockerfile/*
+  
+  clean-packer:
+    desc: Clean Packer Build Artifacts
+    cmds:
+      - echo Cleaning Packer Build...
+      - rm -rf $DIST_PATH/packer/*
