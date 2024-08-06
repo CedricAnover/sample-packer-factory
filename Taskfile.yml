@@ -83,8 +83,8 @@ tasks:
     cmds:
       - echo Building with Packer...
       - packer init .
-      - packer validate -var-file=my-vars.pkrvars.hcl $PACKER_TEMPLATE
-      - packer build -force -on-error=cleanup -var-file=my-vars.pkrvars.hcl $PACKER_TEMPLATE
+      - packer validate .
+      - packer build -force -on-error=cleanup .
       - task: provision-packer-after
 
   provision-packer-before:
